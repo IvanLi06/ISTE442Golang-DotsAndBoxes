@@ -627,7 +627,7 @@ func (h *GameHub) Run() {
 	}
 }
 
-// inbound from browser
+//  from browser
 type GameInbound struct {
 	Type   string `json:"type"`   
 	GameID string `json:"gameId"` 
@@ -664,7 +664,7 @@ func (c *GameClient) readPump() {
                 continue
             }
 
-            // 1) Persist move
+            // 1) Record move
             if err := saveMove(c.db, c.gameID, c.userID, incoming.EdgeID, slot); err != nil {
                 log.Println("saveMove error:", err)
             }
@@ -684,35 +684,32 @@ func (c *GameClient) readPump() {
                 continue
             }
 
-            // 1) Persist chat
+            // 1) Record chat
             if err := saveGameChat(c.db, c.gameID, c.userID, txt); err != nil {
                 log.Println("saveGameChat error:", err)
             }
 
-            // 2) Broadcast chat
+            // 2) Broadcast the chat
             chat := GameMove{
                 Type:   "chat",
                 GameID: c.gameID,
                 UserID: c.userID,
                 Text:   txt,
-                // SentAt will be set in DB; for live messages we can use now:
                 SentAt: time.Now().UTC(),
             }
             c.hub.broadcast <- chat
 
 		 case "endGame":
-            // optional: you could persist this in a `game` table
             end := GameMove{
                 Type:   "endGame",
                 GameID: c.gameID,
                 UserID: c.userID,
-                Text:   incoming.Text, // e.g. "Game ended by player"
+                Text:   incoming.Text, 
                 SentAt: time.Now().UTC(),
             }
             c.hub.broadcast <- end
 
         default:
-            // ignore unknown types
         }
     }
 }
