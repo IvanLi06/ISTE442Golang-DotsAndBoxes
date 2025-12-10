@@ -249,3 +249,73 @@
 .chat-text {
   color: #e2e8f0; 
 }
+
+
+
+
+.board-section {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  gap: 6px;
+}
+.board-section h1.game-title {
+  margin-bottom: 2px;
+}
+
+.board-section p {
+  margin: 1px 0;
+  line-height: 1.2;
+}
+
+svg {
+  margin-top: 8px !important;
+  margin-bottom: 8px !important;
+}
+
+.scoreboard {
+  margin-top: 10px !important;
+}
+
+.side-panel {
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+
+.game-layout {
+  gap: 14px !important;
+}
+
+
+/* End Game button */
+.end-game-btn {
+  margin: 6px auto 0;
+  padding: 6px 16px;
+  font-size: 0.9rem;
+  border-radius: 999px;
+  border: 1px solid #ef4444;
+  background: transparent;
+  color: #ef4444;
+  cursor: pointer;
+}
+
+/* End game banner */
+.end-game-banner {
+  margin: 8px auto;
+  padding: 8px 16px;
+  border-radius: 12px;
+  background: rgba(127, 29, 29, 0.6); 
+  border: 1px solid #ef4444;
+  text-align: center;
+}
+
+/* Back to lobby button */
+.to-lobby-btn {
+  margin-top: 6px;
+  padding: 6px 16px;
+  border-radius: 999px;
+  border: none;
+  background: #2563eb;  
+  color: white;
+  font-size: 0.9rem;
+  cursor: pointer;
+}

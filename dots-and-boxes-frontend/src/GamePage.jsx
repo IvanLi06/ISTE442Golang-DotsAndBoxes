@@ -16,6 +16,8 @@ export default function GamePage() {
   const { token } = useAuth();
   const navigate = useNavigate(); 
   const [chatMessages, setChatMessages] = useState([]);
+  const [gameEnded, setGameEnded] = useState(false);
+  const [endReason, setEndReason] = useState("");
   
 
   const {
@@ -96,7 +98,10 @@ useEffect(() => {
         applyMove(msg.edgeId, msg.playerSlot);
       } else if (msg.type === "chat" && msg.gameId === gameId) {
         setChatMessages((prev) => [...prev, msg]);
-      }
+      } else if (msg.type === "endGame" && msg.gameId === gameId) {
+      setGameEnded(true);
+      setEndReason(msg.text || "Game ended.");
+    }
     } catch (err) {
       console.error("invalid game ws msg", err);
     }
@@ -110,6 +115,10 @@ useEffect(() => {
 
   // 🔹 3. Click handler: only sends move; applyMove is called from WS
   function handleEdgeClick(edgeId) {
+    if (gameEnded) {
+    console.log("Game already ended");
+    return;
+  }
   const myPlayerId = playerIndex === 0 ? "p1" : "p2";
 
   if (myPlayerId !== currentPlayerId) {
@@ -153,6 +162,27 @@ function handleSendChat(text) {
 }
 
 
+function handleEndGameClick() {
+  if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+    console.warn("Game WS not open");
+    return;
+  }
+
+  wsRef.current.send(
+    JSON.stringify({
+      type: "endGame",
+      gameId,
+      text: "Game ended by a player",
+    })
+  );
+}
+
+function handleReturnToLobby() {
+  navigate("/lobby");
+}
+
+
+
 
   const myPlayerId = playerIndex === 0 ? "p1" : "p2";
   const me = players[myPlayerId];
@@ -170,23 +200,29 @@ function handleSendChat(text) {
   return (
     <main className="game-layout">
       <section className="board-section">
-        <h1 className="game-title">Dots &amp; Boxes</h1>
+  <h1 className="game-title">Dots &amp; Boxes</h1>
+  <p>You are <strong>{myPlayerId === "p1" ? "Player 1 (Red)" : "Player 2 (Blue)"}</strong></p>
+  <p>Current turn: <strong>{turnLabel}</strong></p>
 
-        <div style={{ marginBottom: 8 }}>
-          <div>
-            You are{" "}
-            <strong>
-              {myPlayerId === "p1" ? "Player 1 (Red)" : "Player 2 (Blue)"}
-            </strong>
-          </div>
-          <div>
-            Current turn: <strong>{turnLabel}</strong>
-          </div>
-        </div>
+  {!gameEnded && (
+    <button className="end-game-btn" onClick={handleEndGameClick}>
+      End Game
+    </button>
+  )}
 
-        <Board onEdgeClick={handleEdgeClick} />
-        <ScoreBoard />
-      </section>
+  {gameEnded && (
+    <div className="end-game-banner">
+      <p>{endReason || "Game ended by a player"}</p>
+      <button className="to-lobby-btn" onClick={handleReturnToLobby}>
+        Back to Lobby
+      </button>
+    </div>
+  )}
+
+  <Board onEdgeClick={handleEdgeClick} />
+  <ScoreBoard />
+</section>
+
 
       <aside className="side-panel">
         <ChatPanel messages={chatMessages} onSend={handleSendChat} />

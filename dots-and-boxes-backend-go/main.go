@@ -700,6 +700,17 @@ func (c *GameClient) readPump() {
             }
             c.hub.broadcast <- chat
 
+		 case "endGame":
+            // optional: you could persist this in a `game` table
+            end := GameMove{
+                Type:   "endGame",
+                GameID: c.gameID,
+                UserID: c.userID,
+                Text:   incoming.Text, // e.g. "Game ended by player"
+                SentAt: time.Now().UTC(),
+            }
+            c.hub.broadcast <- end
+
         default:
             // ignore unknown types
         }
