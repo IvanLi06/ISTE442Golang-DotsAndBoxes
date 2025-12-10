@@ -118,39 +118,34 @@ export function GameProvider({ children }) {
    * applyMove is called ONLY from GamePage's WebSocket message handler.
    * Every client receives the same move stream, so all boards + turns stay in sync.
    */
-  function applyMove(edgeId) {
+  function applyMove(edgeId, playerSlot) {
   if (winner) return;
 
   setEdges((prevEdges) => {
     const edge = prevEdges[edgeId];
     if (!edge || edge.claimedBy) {
-      return prevEdges; // ignore invalid / already-claimed edges
+      return prevEdges;
     }
 
-    // Player whose turn it is right now
-    const playerId = currentPlayerId;
+    // Use the slot from the message if present; otherwise fall back.
+    const playerId = playerSlot || currentPlayerId;
 
-    // Mark this edge as claimed by that player
     const updatedEdges = {
       ...prevEdges,
       [edgeId]: { ...edge, claimedBy: playerId },
     };
 
-    // Which boxes (0, 1, or 2) just became complete?
     const newBoxIds = checkCompletedBoxes(updatedEdges, edge);
 
-    // Update box ownership + winner
+    // Update boxes & winner
     setBoxes((prevBoxes) => {
       const updatedBoxes = { ...prevBoxes };
-
-      // Give any newly completed boxes to this player
       newBoxIds.forEach((id) => {
         if (!updatedBoxes[id].owner) {
           updatedBoxes[id] = { ...updatedBoxes[id], owner: playerId };
         }
       });
 
-      // Check if all boxes are claimed -> game over & winner
       const claimedCount = Object.values(updatedBoxes).filter(
         (b) => b.owner !== null
       ).length;
@@ -160,7 +155,6 @@ export function GameProvider({ children }) {
         Object.values(updatedBoxes).forEach((b) => {
           if (b.owner) finalScores[b.owner] += 1;
         });
-
         if (finalScores.p1 > finalScores.p2) setWinner("p1");
         else if (finalScores.p2 > finalScores.p1) setWinner("p2");
         else setWinner("draw");
@@ -169,16 +163,15 @@ export function GameProvider({ children }) {
       return updatedBoxes;
     });
 
-    // 🔹 Turn logic:
-    // If no box was completed, switch turns.
-    // If at least one box was completed, same player goes again.
-    setCurrentPlayerId((prevTurn) => {
-      if (newBoxIds.length > 0) {
-        // reward: extra turn
-        return prevTurn;
-      }
-      return prevTurn === "p1" ? "p2" : "p1";
-    });
+    // Decide who moves next based on who just moved + boxes completed
+    const nextTurn =
+      newBoxIds.length === 0
+        ? playerId === "p1"
+          ? "p2"
+          : "p1"
+        : playerId; // extra turn if you closed a box
+
+    setCurrentPlayerId(nextTurn);
 
     console.log(
       "[GameContext] applyMove",
@@ -186,7 +179,9 @@ export function GameProvider({ children }) {
       "by",
       playerId,
       "boxes completed:",
-      newBoxIds
+      newBoxIds,
+      "next turn:",
+      nextTurn
     );
 
     return updatedEdges;

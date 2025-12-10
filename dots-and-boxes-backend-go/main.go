@@ -456,13 +456,17 @@ type GameClient struct {
 	send   chan []byte
 	userID int64
 	gameID string
+	db     *sql.DB   
 }
 
+
 type GameMove struct {
-    Type   string `json:"type"`
-    GameID string `json:"gameId"`
-    EdgeID string `json:"edgeId"`
+    Type       string `json:"type"`
+    GameID     string `json:"gameId"`
+    EdgeID     string `json:"edgeId"`
+    PlayerSlot string `json:"playerSlot"` // "p1" or "p2"
 }
+
 
 type GameHub struct {
 	// gameID -> set of clients
@@ -471,6 +475,20 @@ type GameHub struct {
 	unregister chan *GameClient
 	broadcast  chan GameMove
 }
+
+func saveMove(db *sql.DB, gameID string, userID int64, edgeID, slot string) error {
+    if db == nil {
+        return nil
+    }
+
+    _, err := db.Exec(`
+        INSERT INTO moves (game_id, user_id, edge_id, player_slot, created_at)
+        VALUES ($1, $2, $3, $4, NOW())
+    `, gameID, userID, edgeID, slot)
+    return err
+}
+
+
 
 func NewGameHub() *GameHub {
 	return &GameHub{
@@ -521,28 +539,40 @@ func (h *GameHub) Run() {
 }
 
 func (c *GameClient) readPump() {
-    defer func() {
-        c.hub.unregister <- c
-        c.conn.Close()
-    }()
+	defer func() {
+		c.hub.unregister <- c
+		c.conn.Close()
+	}()
 
-    for {
-        _, message, err := c.conn.ReadMessage()
-        if err != nil {
-            break
-        }
+	for {
+		_, message, err := c.conn.ReadMessage()
+		if err != nil {
+			break
+		}
 
-        var move GameMove
-        if err := json.Unmarshal(message, &move); err != nil {
-            continue
-        }
-        if move.Type != "move" || move.EdgeID == "" {
-            continue
-        }
-        move.GameID = c.gameID
-        c.hub.broadcast <- move
-    }
+		var move GameMove
+if err := json.Unmarshal(message, &move); err != nil {
+    continue
 }
+if move.Type != "move" || move.EdgeID == "" {
+    continue
+}
+move.GameID = c.gameID
+if move.PlayerSlot == "" {
+    move.PlayerSlot = "p1" // fallback, shouldn't normally happen
+}
+
+// persist this move
+if err := saveMove(c.db, move.GameID, c.userID, move.EdgeID, move.PlayerSlot); err != nil {
+    log.Println("saveMove error:", err)
+}
+
+// broadcast to everyone in this game
+c.hub.broadcast <- move
+
+	}
+}
+
 
 func (c *GameClient) writePump() {
 	defer c.conn.Close()
@@ -753,6 +783,7 @@ func (s *Server) handleLobbyWS(w http.ResponseWriter, r *http.Request) {
 
 
 // GET /ws/game?token=JWT&gameId=...
+// GET /ws/game?token=JWT&gameId=...
 func (s *Server) handleGameWS(w http.ResponseWriter, r *http.Request) {
 	tokenStr := r.URL.Query().Get("token")
 	gameID := r.URL.Query().Get("gameId")
@@ -780,13 +811,56 @@ func (s *Server) handleGameWS(w http.ResponseWriter, r *http.Request) {
 		send:   make(chan []byte, 256),
 		userID: userID,
 		gameID: gameID,
+		db:     s.db, // 👈 pass DB into client
 	}
 
+	// 🔹 Replay existing moves so this client reconstructs game state
+	// ⚠️ Adjust column names if needed.
+	rows, err := s.db.Query(`
+    SELECT edge_id, player_slot
+    FROM moves
+    WHERE game_id = $1
+    ORDER BY created_at ASC, id ASC
+`, gameID)
+if err != nil {
+    log.Println("load moves error:", err)
+} else {
+    defer rows.Close()
+    for rows.Next() {
+        var edgeID, slot string
+        if err := rows.Scan(&edgeID, &slot); err != nil {
+            log.Println("scan move error:", err)
+            continue
+        }
+        if slot == "" {
+            slot = "p1"
+        }
+
+        replay := GameMove{
+            Type:       "move",
+            GameID:     gameID,
+            EdgeID:     edgeID,
+            PlayerSlot: slot,
+        }
+        data, err := json.Marshal(replay)
+        if err != nil {
+            continue
+        }
+        if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
+            log.Println("replay write error:", err)
+            break
+        }
+    }
+}
+
+
+	// Now join the live game room and start pumps
 	s.gameHub.register <- client
 
 	go client.writePump()
 	go client.readPump()
 }
+
 
 
 // =====================

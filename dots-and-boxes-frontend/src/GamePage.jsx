@@ -93,19 +93,18 @@ export default function GamePage() {
     ws.onopen = () => console.log("Game WebSocket connected");
 
     ws.onmessage = (event) => {
-      try {
-        const msg = JSON.parse(event.data);
-        console.log("Game WS message:", msg);
+  try {
+    const msg = JSON.parse(event.data);
+    console.log("Game WS message:", msg);
 
-        if (msg.type === "move" && msg.gameId === gameId) {
-          // Server just tells us which edge changed.
-          // applyMove handles board + turn state.
-          applyMove(msg.edgeId);
-        }
-      } catch (err) {
-        console.error("invalid game ws msg", err);
-      }
-    };
+    if (msg.type === "move" && msg.gameId === gameId) {
+      applyMove(msg.edgeId, msg.playerSlot); 
+    }
+  } catch (err) {
+    console.error("invalid game ws msg", err);
+  }
+};
+
 
     ws.onclose = () => console.log("Game WebSocket closed");
 
@@ -114,32 +113,28 @@ export default function GamePage() {
 
   // 🔹 3. Click handler: only sends move; applyMove is called from WS
   function handleEdgeClick(edgeId) {
-    const myPlayerId = playerIndex === 0 ? "p1" : "p2";
+  const myPlayerId = playerIndex === 0 ? "p1" : "p2";
 
-    // Only allow if it's actually my turn
-    if (myPlayerId !== currentPlayerId) {
-      console.log("Not your turn", {
-        myPlayerId,
-        currentPlayerId,
-        edgeId,
-        playerIndex,
-      });
-      return;
-    }
-
-    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-      console.warn("Game WS not open");
-      return;
-    }
-
-    wsRef.current.send(
-      JSON.stringify({
-        type: "move",
-        gameId,
-        edgeId,
-      })
-    );
+  if (myPlayerId !== currentPlayerId) {
+    console.log("Not your turn");
+    return;
   }
+
+  if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+    console.warn("Game WS not open");
+    return;
+  }
+
+  wsRef.current.send(
+    JSON.stringify({
+      type: "move",
+      gameId,
+      edgeId,
+      playerSlot: myPlayerId,
+    })
+  );
+}
+
 
   const myPlayerId = playerIndex === 0 ? "p1" : "p2";
   const me = players[myPlayerId];
