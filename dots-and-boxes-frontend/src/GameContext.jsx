@@ -1,8 +1,13 @@
-import React, { createContext, useContext, useMemo, useState } from "react";
+// src/GameContext.jsx
+import React, {
+  createContext,
+  useContext,
+  useMemo,
+  useState,
+} from "react";
 
 const GameContext = createContext(null);
 
-// 4x4 boxes => 5x5 dots
 const NUM_BOXES_X = 8;
 const NUM_BOXES_Y = 8;
 
@@ -45,20 +50,25 @@ export function GameProvider({ children }) {
     p2: { id: "p2", name: "Player 2", color: "#1e88e5" }, // blue
   });
 
+  // Whose turn is it?
   const [currentPlayerId, setCurrentPlayerId] = useState("p1");
+
+  // Which slot is THIS browser? 0 => p1, 1 => p2
+  const [playerIndex, setPlayerIndex] = useState(0);
+
   const [edges, setEdges] = useState(() => generateEdges());
   const [boxes, setBoxes] = useState(() => generateBoxes());
   const [winner, setWinner] = useState(null);
 
-  const scores = useMemo(() => {
-    const result = { p1: 0, p2: 0 };
-    Object.values(boxes).forEach((b) => {
-      if (b.owner) result[b.owner] += 1;
-    });
-    return result;
-  }, [boxes]);
-
   const totalBoxes = NUM_BOXES_X * NUM_BOXES_Y;
+
+  const scores = useMemo(() => {
+    const s = { p1: 0, p2: 0 };
+    Object.values(boxes).forEach((b) => {
+      if (b.owner) s[b.owner] += 1;
+    });
+    return s;
+  }, [boxes]);
 
   function isBoxComplete(edgesState, boxId) {
     const [_, rowStr, colStr] = boxId.split("-");
@@ -104,54 +114,89 @@ export function GameProvider({ children }) {
     return newBoxIds;
   }
 
-  function handleEdgeClick(edgeId) {
-    // Later: send move to server instead of mutating locally
-    setEdges((prevEdges) => {
-      const edge = prevEdges[edgeId];
-      if (!edge || edge.claimedBy || winner) return prevEdges;
+  /**
+   * applyMove is called ONLY from GamePage's WebSocket message handler.
+   * Every client receives the same move stream, so all boards + turns stay in sync.
+   */
+  function applyMove(edgeId) {
+  if (winner) return;
 
-      const updatedEdges = {
-        ...prevEdges,
-        [edgeId]: { ...edge, claimedBy: currentPlayerId },
-      };
+  setEdges((prevEdges) => {
+    const edge = prevEdges[edgeId];
+    if (!edge || edge.claimedBy) {
+      return prevEdges; // ignore invalid / already-claimed edges
+    }
 
-      const newBoxIds = checkCompletedBoxes(updatedEdges, edge);
+    // Player whose turn it is right now
+    const playerId = currentPlayerId;
 
-      if (newBoxIds.length > 0) {
-        setBoxes((prevBoxes) => {
-          const updatedBoxes = { ...prevBoxes };
-          newBoxIds.forEach((id) => {
-            if (!updatedBoxes[id].owner) {
-              updatedBoxes[id] = {
-                ...updatedBoxes[id],
-                owner: currentPlayerId,
-              };
-            }
-          });
+    // Mark this edge as claimed by that player
+    const updatedEdges = {
+      ...prevEdges,
+      [edgeId]: { ...edge, claimedBy: playerId },
+    };
 
-          const claimedCount = Object.values(updatedBoxes).filter(
-            (b) => b.owner !== null
-          ).length;
+    // Which boxes (0, 1, or 2) just became complete?
+    const newBoxIds = checkCompletedBoxes(updatedEdges, edge);
 
-          if (claimedCount === totalBoxes) {
-            const finalScores = { p1: 0, p2: 0 };
-            Object.values(updatedBoxes).forEach((b) => {
-              if (b.owner) finalScores[b.owner] += 1;
-            });
-            if (finalScores.p1 > finalScores.p2) setWinner("p1");
-            else if (finalScores.p2 > finalScores.p1) setWinner("p2");
-            else setWinner("draw");
-          }
+    // Update box ownership + winner
+    setBoxes((prevBoxes) => {
+      const updatedBoxes = { ...prevBoxes };
 
-          return updatedBoxes;
+      // Give any newly completed boxes to this player
+      newBoxIds.forEach((id) => {
+        if (!updatedBoxes[id].owner) {
+          updatedBoxes[id] = { ...updatedBoxes[id], owner: playerId };
+        }
+      });
+
+      // Check if all boxes are claimed -> game over & winner
+      const claimedCount = Object.values(updatedBoxes).filter(
+        (b) => b.owner !== null
+      ).length;
+
+      if (claimedCount === totalBoxes) {
+        const finalScores = { p1: 0, p2: 0 };
+        Object.values(updatedBoxes).forEach((b) => {
+          if (b.owner) finalScores[b.owner] += 1;
         });
-        // same player’s turn (extra move)
-      } else {
-        setCurrentPlayerId((prev) => (prev === "p1" ? "p2" : "p1"));
+
+        if (finalScores.p1 > finalScores.p2) setWinner("p1");
+        else if (finalScores.p2 > finalScores.p1) setWinner("p2");
+        else setWinner("draw");
       }
 
-      return updatedEdges;
+      return updatedBoxes;
     });
+
+    // 🔹 Turn logic:
+    // If no box was completed, switch turns.
+    // If at least one box was completed, same player goes again.
+    setCurrentPlayerId((prevTurn) => {
+      if (newBoxIds.length > 0) {
+        // reward: extra turn
+        return prevTurn;
+      }
+      return prevTurn === "p1" ? "p2" : "p1";
+    });
+
+    console.log(
+      "[GameContext] applyMove",
+      edgeId,
+      "by",
+      playerId,
+      "boxes completed:",
+      newBoxIds
+    );
+
+    return updatedEdges;
+  });
+}
+
+
+  // Fallback single-player click handler (not used by WS path anymore)
+  function handleEdgeClick(edgeId) {
+    applyMove(edgeId);
   }
 
   function resetGame() {
@@ -164,6 +209,8 @@ export function GameProvider({ children }) {
   const value = {
     players,
     currentPlayerId,
+    playerIndex,
+    setPlayerIndex,
     edges,
     boxes,
     scores,
@@ -174,6 +221,7 @@ export function GameProvider({ children }) {
       numDotsX: NUM_BOXES_X + 1,
       numDotsY: NUM_BOXES_Y + 1,
     },
+    applyMove,
     handleEdgeClick,
     resetGame,
   };

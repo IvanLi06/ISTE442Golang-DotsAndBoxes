@@ -436,14 +436,123 @@ func (c *LobbyClient) writePump() {
 }
 
 var wsUpgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool {
-		// for dev you can allow all; restrict in prod
-		return true
-	},
+    ReadBufferSize:  1024,
+    WriteBufferSize: 1024,
+    CheckOrigin: func(r *http.Request) bool {
+        // For dev; you can tighten this later.
+        return true
+    },
 }
 
 
 
+// =====================
+// Game WebSocket
+// =====================
+
+type GameClient struct {
+	hub    *GameHub
+	conn   *websocket.Conn
+	send   chan []byte
+	userID int64
+	gameID string
+}
+
+type GameMove struct {
+    Type   string `json:"type"`
+    GameID string `json:"gameId"`
+    EdgeID string `json:"edgeId"`
+}
+
+type GameHub struct {
+	// gameID -> set of clients
+	games      map[string]map[*GameClient]bool
+	register   chan *GameClient
+	unregister chan *GameClient
+	broadcast  chan GameMove
+}
+
+func NewGameHub() *GameHub {
+	return &GameHub{
+		games:      make(map[string]map[*GameClient]bool),
+		register:   make(chan *GameClient),
+		unregister: make(chan *GameClient),
+		broadcast:  make(chan GameMove),
+	}
+}
+
+func (h *GameHub) Run() {
+	for {
+		select {
+		case client := <-h.register:
+			if _, ok := h.games[client.gameID]; !ok {
+				h.games[client.gameID] = make(map[*GameClient]bool)
+			}
+			h.games[client.gameID][client] = true
+
+		case client := <-h.unregister:
+			if room, ok := h.games[client.gameID]; ok {
+				if _, exists := room[client]; exists {
+					delete(room, client)
+					close(client.send)
+					if len(room) == 0 {
+						delete(h.games, client.gameID)
+					}
+				}
+			}
+
+		case move := <-h.broadcast:
+			if room, ok := h.games[move.GameID]; ok {
+				data, err := json.Marshal(move)
+				if err != nil {
+					continue
+				}
+				for c := range room {
+					select {
+					case c.send <- data:
+					default:
+						delete(room, c)
+						close(c.send)
+					}
+				}
+			}
+		}
+	}
+}
+
+func (c *GameClient) readPump() {
+    defer func() {
+        c.hub.unregister <- c
+        c.conn.Close()
+    }()
+
+    for {
+        _, message, err := c.conn.ReadMessage()
+        if err != nil {
+            break
+        }
+
+        var move GameMove
+        if err := json.Unmarshal(message, &move); err != nil {
+            continue
+        }
+        if move.Type != "move" || move.EdgeID == "" {
+            continue
+        }
+        move.GameID = c.gameID
+        c.hub.broadcast <- move
+    }
+}
+
+func (c *GameClient) writePump() {
+	defer c.conn.Close()
+	for msg := range c.send {
+		if err := c.conn.WriteMessage(websocket.TextMessage, msg); err != nil {
+			log.Println("game write error:", err)
+			break
+		}
+	}
+}
 
 
 
@@ -461,15 +570,20 @@ type Server struct {
 	tokenStore *TokenStore
 	userStore  *UserStore
 	lobbyHub   *LobbyHub
+	gameHub    *GameHub   
 }
 
 func NewServer(db *sql.DB) *Server {
-	return &Server{
+	s := &Server{
 		db:         db,
 		tokenStore: NewTokenStore(),
 		userStore:  NewUserStore(db),
 		lobbyHub:   NewLobbyHub(),
+		gameHub:    NewGameHub(), 
 	}
+	go s.gameHub.Run() // 👈 VERY IMPORTANT
+
+    return s
 }
 
 // =====================
@@ -635,6 +749,46 @@ func (s *Server) handleLobbyWS(w http.ResponseWriter, r *http.Request) {
 	go client.readPump()
 }
 
+
+
+
+// GET /ws/game?token=JWT&gameId=...
+func (s *Server) handleGameWS(w http.ResponseWriter, r *http.Request) {
+	tokenStr := r.URL.Query().Get("token")
+	gameID := r.URL.Query().Get("gameId")
+	if tokenStr == "" || gameID == "" {
+		writeError(w, http.StatusUnauthorized, "missing token or gameId")
+		return
+	}
+
+	userID, err := parseJWT(tokenStr)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "invalid token")
+		return
+	}
+	log.Printf("handleGameWS: user %d joining game %s", userID, gameID)
+
+	conn, err := wsUpgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Println("game websocket upgrade error:", err)
+		return
+	}
+
+	client := &GameClient{
+		hub:    s.gameHub,
+		conn:   conn,
+		send:   make(chan []byte, 256),
+		userID: userID,
+		gameID: gameID,
+	}
+
+	s.gameHub.register <- client
+
+	go client.writePump()
+	go client.readPump()
+}
+
+
 // =====================
 // Auth Middleware
 // =====================
@@ -701,6 +855,7 @@ func main() {
 
 	// start lobby hub
 	go srv.lobbyHub.Run()
+	go srv.gameHub.Run()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", srv.handleHealth)
@@ -709,6 +864,7 @@ func main() {
 	mux.HandleFunc("/auth/login", srv.handleLogin)
 	mux.HandleFunc("/auth/me", srv.authMiddleware(srv.handleMe))
 	mux.HandleFunc("/ws/lobby", srv.handleLobbyWS)
+	mux.HandleFunc("/ws/game", srv.handleGameWS)
 
 	port := "8090"
 	log.Println("Listening on port", port)

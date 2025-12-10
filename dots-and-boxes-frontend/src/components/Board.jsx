@@ -5,11 +5,14 @@ import { useGame } from "../GameContext";
 const SVG_SIZE = 500;
 const PADDING = 30; // extra white space around the grid
 
-export default function Board() {
+export default function Board({ onEdgeClick }) {
   const { edges, boxes, dimensions, handleEdgeClick, players } = useGame();
   const { numDotsX, numDotsY } = dimensions;
 
-  // We use the inner area (minus padding on all sides) for the grid
+  // Prefer the handler passed from GamePage (WS-aware),
+  // fall back to local context handler if none given.
+  const clickHandler = onEdgeClick || handleEdgeClick;
+
   const innerWidth = SVG_SIZE - 2 * PADDING;
   const innerHeight = SVG_SIZE - 2 * PADDING;
 
@@ -49,10 +52,9 @@ export default function Board() {
       height={SVG_SIZE}
       viewBox={`0 0 ${SVG_SIZE} ${SVG_SIZE}`}
       style={{
-        background: "white",          // white board
+        background: "white",
         boxShadow: "0 4px 18px rgba(0,0,0,0.15)",
-        borderRadius: "16px"
-        // removed borderRadius so corners are square
+        borderRadius: "16px",
       }}
     >
       {/* Filled boxes with X */}
@@ -69,7 +71,6 @@ export default function Board() {
               height={height - 8}
               fill={color}
               opacity={0.15}
-              /* you can set rx/ry to 0 if you also want box corners square */
               rx={0}
               ry={0}
             />
@@ -95,43 +96,53 @@ export default function Board() {
 
       {/* Clickable edges */}
       {Object.values(edges).map((edge) => {
-        const { x1, y1, x2, y2 } = edgePosition(edge);
-        const ownerColor = edge.claimedBy ? players[edge.claimedBy].color : "#ccc";
+  const { x1, y1, x2, y2 } = edgePosition(edge);
+  const ownerColor = edge.claimedBy
+    ? players[edge.claimedBy].color
+    : "#ccc";
 
-        return (
-          <g key={edge.id}>
-            {/* visible line */}
-            <line
-              x1={x1}
-              y1={y1}
-              x2={x2}
-              y2={y2}
-              stroke={ownerColor}
-              strokeWidth={4}
-              strokeLinecap="round"
-            />
-            {/* invisible hit area for clicks */}
-            {!edge.claimedBy && (
-              <line
-                x1={x1}
-                y1={y1}
-                x2={x2}
-                y2={y2}
-                stroke="transparent"
-                strokeWidth={18}
-                onClick={() => handleEdgeClick(edge.id)}
-                style={{ cursor: "pointer" }}
-              />
-            )}
-          </g>
-        );
-      })}
+  return (
+    <g key={edge.id}>
+      {/* visible line */}
+      <line
+        x1={x1}
+        y1={y1}
+        x2={x2}
+        y2={y2}
+        stroke={ownerColor}
+        strokeWidth={4}
+        strokeLinecap="round"
+      />
+      {/* invisible hit area for clicks */}
+      {!edge.claimedBy && clickHandler && (
+        <line
+          x1={x1}
+          y1={y1}
+          x2={x2}
+          y2={y2}
+          stroke="transparent"
+          strokeWidth={18}
+          onClick={() => clickHandler(edge.id)}
+          style={{ cursor: "pointer" }}
+        />
+      )}
+    </g>
+  );
+})}
 
       {/* Dots */}
       {Array.from({ length: numDotsY }).map((_, row) =>
         Array.from({ length: numDotsX }).map((__, col) => {
           const { cx, cy } = dotPosition(col, row);
-          return <circle key={`dot-${row}-${col}`} cx={cx} cy={cy} r={5} fill="#000" />;
+          return (
+            <circle
+              key={`dot-${row}-${col}`}
+              cx={cx}
+              cy={cy}
+              r={5}
+              fill="#000"
+            />
+          );
         })
       )}
     </svg>

@@ -1,3 +1,4 @@
+// src/components/LobbyChat.jsx
 import React, { useEffect, useRef, useState } from "react";
 import { useAuth } from "../auth/AuthContext";
 import { useNavigate } from "react-router-dom";
@@ -12,7 +13,7 @@ export default function LobbyChat() {
   const [messages, setMessages] = useState([]);
   const [players, setPlayers] = useState([]);
   const [input, setInput] = useState("");
-  const [incomingOffer, setIncomingOffer] = useState(null); // { fromUserId, fromName, targetUserId }
+  const [incomingOffer, setIncomingOffer] = useState(null);
   const wsRef = useRef(null);
 
   useEffect(() => {
@@ -50,7 +51,6 @@ export default function LobbyChat() {
     return () => {
       ws.close();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
   function handleChallengeOffer(msg) {
@@ -58,15 +58,15 @@ export default function LobbyChat() {
 
     console.log("challengeOffer received", { msg, currentUserId });
 
-    // If I am the one being challenged, show banner
     if (msg.targetUserId === currentUserId) {
+      // I am being challenged
       setIncomingOffer({
         fromUserId: msg.fromUserId,
         fromName: msg.fromName,
         targetUserId: msg.targetUserId,
       });
     } else if (msg.fromUserId === currentUserId) {
-      // I sent the challenge; show a small system message
+      // I sent the challenge
       setMessages((prev) => [
         ...prev,
         {
@@ -78,21 +78,46 @@ export default function LobbyChat() {
     }
   }
 
-function handleStartGame(msg) {
-  if (!currentUserId) return;
-  const players = msg.playerIds || [];
-  if (players.includes(currentUserId)) {
-    // Pass playerIds along so the game page can know who is P1/P2
-    navigate(`/game/${msg.gameId}`, {
-      state: { playerIds: players },
-    });
-  }
-}
+  function handleStartGame(msg) {
+    if (!currentUserId) return;
+    const players = msg.playerIds || [];
+    const idx = players.indexOf(currentUserId);
 
+    console.log("startGame received", {
+      msg,
+      currentUserId,
+      players,
+      idx,
+    });
+
+    if (idx !== -1) {
+      // Save my role for this gameId (for reloads)
+      const roleInfo = {
+        gameId: msg.gameId,
+        playerIndex: idx, // 0 = Player 1, 1 = Player 2
+        players,
+      };
+      localStorage.setItem(`game-role:${msg.gameId}`, JSON.stringify(roleInfo));
+
+      // 🔹 Pass my playerIndex via router state so GamePage knows who I am
+      navigate(`/game/${msg.gameId}`, {
+        state: { playerIndex: idx },
+      });
+    } else {
+      console.warn(
+        "Could not find currentUserId in playerIds for startGame",
+        msg
+      );
+    }
+  }
 
   function handleSubmit(e) {
     e.preventDefault();
-    if (!input.trim() || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+    if (
+      !input.trim() ||
+      !wsRef.current ||
+      wsRef.current.readyState !== WebSocket.OPEN
+    ) {
       return;
     }
 
@@ -113,7 +138,12 @@ function handleStartGame(msg) {
   }
 
   function acceptOffer() {
-    if (!incomingOffer || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+    if (
+      !incomingOffer ||
+      !wsRef.current ||
+      wsRef.current.readyState !== WebSocket.OPEN
+    )
+      return;
 
     const payload = {
       type: "challengeAccept",
@@ -125,7 +155,6 @@ function handleStartGame(msg) {
 
   function declineOffer() {
     setIncomingOffer(null);
-    // (optional: you could send a "challengeDecline" message here)
   }
 
   return (
@@ -171,7 +200,8 @@ function handleStartGame(msg) {
         {incomingOffer && (
           <div className="lobby-challenge-banner">
             <p>
-              <strong>{incomingOffer.fromName}</strong> challenged you to a game.
+              <strong>{incomingOffer.fromName}</strong> challenged you to a
+              game.
             </p>
             <div className="lobby-challenge-actions">
               <button onClick={acceptOffer}>Accept</button>
