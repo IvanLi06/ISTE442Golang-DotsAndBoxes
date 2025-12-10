@@ -222,13 +222,11 @@ function handleReturnToLobby() {
         You are <strong>{myPlayerId === "p1" ? "Player 1 (Red)" : "Player 2 (Blue)"}</strong>
     </div>
 
-    <div className="divider-dot">•</div>
-
+    <div className="divider-dash">-</div>
     <div className="game-info-item">
         Current turn: <strong>{turnLabel}</strong>
     </div>
-
-    <div className="divider-dot">•</div>
+    <div className="divider-dash">-</div>
 
     <button className="end-game-btn" onClick={handleEndGameClick}>
         End Game
