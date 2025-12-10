@@ -70,38 +70,43 @@ export default function GamePage() {
 
 
   // 🔹 2. Game WebSocket for receiving moves
-  useEffect(() => {
-    if (!token || !gameId) return;
+  // GamePage.jsx
+useEffect(() => {
+  if (!token || !gameId) return;
 
-    const ws = new WebSocket(
-      `${GAME_WS_URL}?token=${encodeURIComponent(
-        token
-      )}&gameId=${encodeURIComponent(gameId)}`
-    );
-    wsRef.current = ws;
+  const ws = new WebSocket(
+    `${GAME_WS_URL}?token=${encodeURIComponent(
+      token
+    )}&gameId=${encodeURIComponent(gameId)}`
+  );
+  wsRef.current = ws;
 
-    ws.onopen = () => console.log("Game WebSocket connected");
+  ws.onopen = () => {
+    console.log("Game WebSocket connected");
+    // 🔹 Always start from a clean slate on this connection
+    setChatMessages([]);
+  };
 
-    ws.onmessage = (event) => {
-  try {
-    const msg = JSON.parse(event.data);
-    console.log("Game WS message:", msg);
+  ws.onmessage = (event) => {
+    try {
+      const msg = JSON.parse(event.data);
+      console.log("Game WS message:", msg);
 
-    if (msg.type === "move" && msg.gameId === gameId) {
-    applyMove(msg.edgeId, msg.playerSlot);
-    } else if (msg.type === "chat" && msg.gameId === gameId) {
-      setChatMessages((prev) => [...prev, msg]);
+      if (msg.type === "move" && msg.gameId === gameId) {
+        applyMove(msg.edgeId, msg.playerSlot);
+      } else if (msg.type === "chat" && msg.gameId === gameId) {
+        setChatMessages((prev) => [...prev, msg]);
+      }
+    } catch (err) {
+      console.error("invalid game ws msg", err);
     }
-  } catch (err) {
-    console.error("invalid game ws msg", err);
-  }
-};
+  };
 
+  ws.onclose = () => console.log("Game WebSocket closed");
 
-    ws.onclose = () => console.log("Game WebSocket closed");
+  return () => ws.close();
+}, [token, gameId, applyMove]);
 
-    return () => ws.close();
-  }, [token, gameId, applyMove]);
 
   // 🔹 3. Click handler: only sends move; applyMove is called from WS
   function handleEdgeClick(edgeId) {

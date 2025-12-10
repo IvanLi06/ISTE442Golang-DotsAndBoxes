@@ -469,6 +469,7 @@ type GameMove struct {
 	Text   string `json:"text,omitempty"`
 	UserID int64  `json:"userId,omitempty"`
     PlayerSlot string `json:"playerSlot,omitempty"` // "p1" or "p2"
+	SentAt     time.Time `json:"sentAt,omitempty"`
 }
 
 
@@ -523,6 +524,57 @@ func loadMoves(db *sql.DB, gameID string) ([]StoredMove, error) {
 	}
 	return moves, rows.Err()
 }
+
+
+
+func saveGameChat(db *sql.DB, gameID string, userID int64, text string) error {
+    if db == nil {
+        return nil
+    }
+    _, err := db.Exec(
+        `INSERT INTO chat_messages (game_id, user_id, display_name, message, room_type)
+         VALUES ($1, $2, (SELECT display_name FROM users WHERE id = $2), $3, 'game')`,
+        gameID, userID, text,
+    )
+    return err
+}
+
+func loadGameChat(db *sql.DB, gameID string) ([]GameMove, error) {
+    if db == nil {
+        return nil, nil
+    }
+
+    rows, err := db.Query(
+        `SELECT user_id, message, created_at
+           FROM chat_messages
+          WHERE game_id = $1 AND room_type = 'game'
+          ORDER BY created_at ASC, id ASC`,
+        gameID,
+    )
+    if err != nil {
+        return nil, err
+    }
+    defer rows.Close()
+
+    var msgs []GameMove
+    for rows.Next() {
+        var userID int64
+        var msgText string
+        var createdAt time.Time
+        if err := rows.Scan(&userID, &msgText, &createdAt); err != nil {
+            return nil, err
+        }
+        msgs = append(msgs, GameMove{
+            Type:   "chat",
+            GameID: gameID,
+            UserID: userID,
+            Text:   msgText,
+            SentAt: createdAt,
+        })
+    }
+    return msgs, rows.Err()
+}
+
 
 
 
@@ -584,46 +636,76 @@ type GameInbound struct {
 }
 
 func (c *GameClient) readPump() {
-	defer func() {
-		c.hub.unregister <- c
-		c.conn.Close()
-	}()
+    defer func() {
+        c.hub.unregister <- c
+        c.conn.Close()
+    }()
 
-	for {
-		_, message, err := c.conn.ReadMessage()
-		if err != nil {
-			break
-		}
+    for {
+        _, message, err := c.conn.ReadMessage()
+        if err != nil {
+            break
+        }
 
-		var incoming GameMove
-		if err := json.Unmarshal(message, &incoming); err != nil {
-			continue
-		}
-		if incoming.Type != "move" || incoming.EdgeID == "" {
-			continue
-		}
+        var incoming GameMove
+        if err := json.Unmarshal(message, &incoming); err != nil {
+            continue
+        }
 
-		// Frontend will send "p1" or "p2"
-		slot := incoming.PlayerSlot
-		if slot != "p1" && slot != "p2" {
-			continue
-		}
+        switch incoming.Type {
+        case "move":
+            if incoming.EdgeID == "" {
+                continue
+            }
 
-		// 1) Persist in DB
-		if err := saveMove(c.db, c.gameID, c.userID, incoming.EdgeID, slot); err != nil {
-			log.Println("saveMove error:", err)
-		}
+            // Frontend sends "p1" or "p2"
+            slot := incoming.PlayerSlot
+            if slot != "p1" && slot != "p2" {
+                continue
+            }
 
-		// 2) Broadcast canonical move to all clients
-		move := GameMove{
-			Type:       "move",
-			GameID:     c.gameID,
-			EdgeID:     incoming.EdgeID,
-			PlayerSlot: slot,
-		}
-		c.hub.broadcast <- move
-	}
+            // 1) Persist move
+            if err := saveMove(c.db, c.gameID, c.userID, incoming.EdgeID, slot); err != nil {
+                log.Println("saveMove error:", err)
+            }
+
+            // 2) Broadcast move
+            move := GameMove{
+                Type:       "move",
+                GameID:     c.gameID,
+                EdgeID:     incoming.EdgeID,
+                PlayerSlot: slot,
+            }
+            c.hub.broadcast <- move
+
+        case "chat":
+            txt := strings.TrimSpace(incoming.Text)
+            if txt == "" {
+                continue
+            }
+
+            // 1) Persist chat
+            if err := saveGameChat(c.db, c.gameID, c.userID, txt); err != nil {
+                log.Println("saveGameChat error:", err)
+            }
+
+            // 2) Broadcast chat
+            chat := GameMove{
+                Type:   "chat",
+                GameID: c.gameID,
+                UserID: c.userID,
+                Text:   txt,
+                // SentAt will be set in DB; for live messages we can use now:
+                SentAt: time.Now().UTC(),
+            }
+            c.hub.broadcast <- chat
+
+        default:
+            // ignore unknown types
+        }
+    }
 }
+
 
 
 func (c *GameClient) writePump() {
@@ -875,63 +957,80 @@ func (s *Server) handleLobbyWS(w http.ResponseWriter, r *http.Request) {
 // GET /ws/game?token=JWT&gameId=...
 // GET /ws/game?token=JWT&gameId=...
 func (s *Server) handleGameWS(w http.ResponseWriter, r *http.Request) {
-	tokenStr := r.URL.Query().Get("token")
-	gameID := r.URL.Query().Get("gameId")
-	if tokenStr == "" || gameID == "" {
-		writeError(w, http.StatusUnauthorized, "missing token or gameId")
-		return
-	}
+    tokenStr := r.URL.Query().Get("token")
+    gameID := r.URL.Query().Get("gameId")
+    if tokenStr == "" || gameID == "" {
+        writeError(w, http.StatusUnauthorized, "missing token or gameId")
+        return
+    }
 
-	userID, err := parseJWT(tokenStr)
-	if err != nil {
-		writeError(w, http.StatusUnauthorized, "invalid token")
-		return
-	}
-	log.Printf("handleGameWS: user %d joining game %s", userID, gameID)
+    userID, err := parseJWT(tokenStr)
+    if err != nil {
+        writeError(w, http.StatusUnauthorized, "invalid token")
+        return
+    }
+    log.Printf("handleGameWS: user %d joining game %s", userID, gameID)
 
-	conn, err := wsUpgrader.Upgrade(w, r, nil)
-	if err != nil {
-		log.Println("game websocket upgrade error:", err)
-		return
-	}
+    conn, err := wsUpgrader.Upgrade(w, r, nil)
+    if err != nil {
+        log.Println("game websocket upgrade error:", err)
+        return
+    }
 
-	// 1) Replay existing moves for this game to THIS connection
-	moves, err := loadMoves(s.db, gameID)
-	if err != nil {
-		log.Println("loadMoves error:", err)
-	} else {
-		for _, m := range moves {
-			replay := GameMove{
-				Type:       "move",
-				GameID:     gameID,
-				EdgeID:     m.EdgeID,
-				PlayerSlot: m.PlayerSlot,
-			}
-			data, err := json.Marshal(replay)
-			if err != nil {
-				continue
-			}
-			if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
-				log.Println("replay write error:", err)
-				break
-			}
-		}
-	}
+    // 1) Replay existing moves
+    moves, err := loadMoves(s.db, gameID)
+    if err != nil {
+        log.Println("loadMoves error:", err)
+    } else {
+        for _, m := range moves {
+            replay := GameMove{
+                Type:       "move",
+                GameID:     gameID,
+                EdgeID:     m.EdgeID,
+                PlayerSlot: m.PlayerSlot,
+            }
+            data, err := json.Marshal(replay)
+            if err != nil {
+                continue
+            }
+            if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
+                log.Println("replay move write error:", err)
+                break
+            }
+        }
+    }
 
-	// 2) Now join the hub for live updates
-	client := &GameClient{
-		hub:    s.gameHub,
-		db:     s.db,
-		conn:   conn,
-		send:   make(chan []byte, 256),
-		userID: userID,
-		gameID: gameID,
-	}
+    // 2) Replay existing chat messages
+    chats, err := loadGameChat(s.db, gameID)
+    if err != nil {
+        log.Println("loadGameChat error:", err)
+    } else {
+        for _, ch := range chats {
+            data, err := json.Marshal(ch)
+            if err != nil {
+                continue
+            }
+            if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
+                log.Println("replay chat write error:", err)
+                break
+            }
+        }
+    }
 
-	s.gameHub.register <- client
+    // 3) Join hub for live updates
+    client := &GameClient{
+        hub:    s.gameHub,
+        db:     s.db,
+        conn:   conn,
+        send:   make(chan []byte, 256),
+        userID: userID,
+        gameID: gameID,
+    }
 
-	go client.writePump()
-	go client.readPump()
+    s.gameHub.register <- client
+
+    go client.writePump()
+    go client.readPump()
 }
 
 
