@@ -8,7 +8,8 @@ import Board from "./components/Board";
 import ScoreBoard from "./components/Scoreboard";
 import ChatPanel from "./components/ChatPanel";
 
-const GAME_WS_URL = "ws://localhost:8090/ws/game";
+const GAME_WS_URL =
+  (import.meta.env.VITE_WS_BASE || "ws://localhost:8090") + "/ws/game";
 
 export default function GamePage() {
   const { gameId } = useParams();

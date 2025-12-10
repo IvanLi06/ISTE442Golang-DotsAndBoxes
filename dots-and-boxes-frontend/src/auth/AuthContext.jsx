@@ -3,7 +3,7 @@ import React, { createContext, useContext, useEffect, useState } from "react";
 const AuthContext = createContext(null);
 
 // Adjust if your API is on another host/port
-const API_BASE = "http://localhost:8090";
+const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8090";
 
 export function AuthProvider({ children }) {
   const [token, setToken] = useState(() => localStorage.getItem("authToken"));

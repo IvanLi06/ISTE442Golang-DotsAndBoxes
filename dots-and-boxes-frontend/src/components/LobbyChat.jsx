@@ -3,7 +3,8 @@ import React, { useEffect, useRef, useState } from "react";
 import { useAuth } from "../auth/AuthContext";
 import { useNavigate } from "react-router-dom";
 
-const WS_URL = "ws://localhost:8090/ws/lobby";
+const WS_URL =
+  (import.meta.env.VITE_WS_BASE || "ws://localhost:8090") + "/ws/lobby";
 
 export default function LobbyChat() {
   const { token, user } = useAuth();
