@@ -18,6 +18,7 @@ export default function GamePage() {
   const [chatMessages, setChatMessages] = useState([]);
   const [gameEnded, setGameEnded] = useState(false);
   const [endReason, setEndReason] = useState("");
+  const [statusMessage, setStatusMessage] = useState("");
   
 
   const {
@@ -29,6 +30,7 @@ export default function GamePage() {
   } = useGame();
 
   const wsRef = useRef(null);
+  const warningTimeoutRef = useRef(null);
 
   // 🔹 1. Determine which player THIS browser is, and store in context
   useEffect(() => {
@@ -113,6 +115,18 @@ useEffect(() => {
 }, [token, gameId, applyMove]);
 
 
+  function showWarning(msg) {
+    setStatusMessage(msg);
+    if (warningTimeoutRef.current) {
+      clearTimeout(warningTimeoutRef.current);
+    }
+    warningTimeoutRef.current = setTimeout(() => {
+      setStatusMessage("");
+      warningTimeoutRef.current = null;
+    }, 2000); // 2 seconds
+  }
+
+
   // 🔹 3. Click handler: only sends move; applyMove is called from WS
   function handleEdgeClick(edgeId) {
     if (gameEnded) {
@@ -122,11 +136,13 @@ useEffect(() => {
   const myPlayerId = playerIndex === 0 ? "p1" : "p2";
 
   if (myPlayerId !== currentPlayerId) {
+    showWarning("Not your turn. Wait for your opponent.");
     console.log("Not your turn");
     return;
   }
 
   if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+    showWarning("Connection issue — move not sent.");
     console.warn("Game WS not open");
     return;
   }
@@ -201,14 +217,27 @@ function handleReturnToLobby() {
     <main className="game-layout">
       <section className="board-section">
   <h1 className="game-title">Dots &amp; Boxes</h1>
-  <p>You are <strong>{myPlayerId === "p1" ? "Player 1 (Red)" : "Player 2 (Blue)"}</strong></p>
-  <p>Current turn: <strong>{turnLabel}</strong></p>
+  <div className="game-info-row">
+    <div className="game-info-item">
+        You are <strong>{myPlayerId === "p1" ? "Player 1 (Red)" : "Player 2 (Blue)"}</strong>
+    </div>
 
-  {!gameEnded && (
+    <div className="divider-dot">•</div>
+
+    <div className="game-info-item">
+        Current turn: <strong>{turnLabel}</strong>
+    </div>
+
+    <div className="divider-dot">•</div>
+
     <button className="end-game-btn" onClick={handleEndGameClick}>
-      End Game
+        End Game
     </button>
-  )}
+    </div>
+
+  {statusMessage && (
+          <div className="illegal-move-warning">{statusMessage}</div>
+        )}
 
   {gameEnded && (
     <div className="end-game-banner">

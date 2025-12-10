@@ -319,3 +319,30 @@ svg {
   font-size: 0.9rem;
   cursor: pointer;
 }
+
+.game-info-row {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 14px;
+  margin-top: 4px;
+  margin-bottom: 4px;
+  flex-wrap: wrap; 
+}
+
+.game-info-item {
+  font-size: 0.95rem;
+}
+
+.divider-dot {
+  opacity: 0.6;
+}
+
+
+
+
+.illegal-move-warning {
+  margin-top: 4px;
+  font-size: 0.85rem;
+  color: orange; 
+}
