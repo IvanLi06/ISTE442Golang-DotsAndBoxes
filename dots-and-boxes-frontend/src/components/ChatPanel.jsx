@@ -1,10 +1,12 @@
 // src/components/ChatPanel.jsx
+
 import React, { useState } from "react";
 import { useAuth } from "../auth/AuthContext";
 
 export default function ChatPanel({ messages, onSend }) {
   const { user } = useAuth();
   const currentUserId = user?.id ?? user?.userId ?? null;
+  const myName = user?.displayName || user?.username || "You";
 
   const [input, setInput] = useState("");
 
@@ -26,19 +28,24 @@ export default function ChatPanel({ messages, onSend }) {
         ) : (
           messages.map((msg, idx) => {
             if (msg.type !== "chat") return null;
+
             const isMe =
               currentUserId != null &&
               msg.userId != null &&
               msg.userId === currentUserId;
 
+            const label = isMe
+              ? `You (${myName})`
+              : msg.displayName || "Opponent";
+
             return (
               <div
                 key={idx}
                 className={`chat-message-row ${isMe ? "chat-me" : "chat-opp"}`}
-                >
-                <span className="chat-name">{isMe ? "You" : "Opponent"}:</span>{" "}
+              >
+                <span className="chat-name">{label}:</span>{" "}
                 <span className="chat-text">{msg.text}</span>
-            </div>
+              </div>
             );
           })
         )}

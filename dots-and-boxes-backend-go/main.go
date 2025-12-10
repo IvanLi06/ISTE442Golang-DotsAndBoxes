@@ -469,6 +469,7 @@ type GameMove struct {
 	Text   string `json:"text,omitempty"`
 	UserID int64  `json:"userId,omitempty"`
     PlayerSlot string `json:"playerSlot,omitempty"` // "p1" or "p2"
+	DisplayName string    `json:"displayName,omitempty"`
 	SentAt     time.Time `json:"sentAt,omitempty"`
 }
 
@@ -527,16 +528,16 @@ func loadMoves(db *sql.DB, gameID string) ([]StoredMove, error) {
 
 
 
-func saveGameChat(db *sql.DB, gameID string, userID int64, text string) error {
-    if db == nil {
-        return nil
-    }
-    _, err := db.Exec(
-        `INSERT INTO chat_messages (game_id, user_id, display_name, message, room_type)
-         VALUES ($1, $2, (SELECT display_name FROM users WHERE id = $2), $3, 'game')`,
-        gameID, userID, text,
-    )
-    return err
+func saveGameChat(db *sql.DB, gameID string, userID int64, displayName, text string) error {
+	if db == nil {
+		return nil
+	}
+	_, err := db.Exec(
+		`INSERT INTO chat_messages (game_id, user_id, display_name, message, room_type)
+         VALUES ($1, $2, $3, $4, 'game')`,
+		gameID, userID, displayName, text,
+	)
+	return err
 }
 
 func loadGameChat(db *sql.DB, gameID string) ([]GameMove, error) {
@@ -636,83 +637,92 @@ type GameInbound struct {
 }
 
 func (c *GameClient) readPump() {
-    defer func() {
-        c.hub.unregister <- c
-        c.conn.Close()
-    }()
+	defer func() {
+		c.hub.unregister <- c
+		c.conn.Close()
+	}()
 
-    for {
-        _, message, err := c.conn.ReadMessage()
-        if err != nil {
-            break
-        }
+	for {
+		_, message, err := c.conn.ReadMessage()
+		if err != nil {
+			break
+		}
 
-        var incoming GameMove
-        if err := json.Unmarshal(message, &incoming); err != nil {
-            continue
-        }
+		var incoming GameMove
+		if err := json.Unmarshal(message, &incoming); err != nil {
+			continue
+		}
 
-        switch incoming.Type {
-        case "move":
-            if incoming.EdgeID == "" {
-                continue
-            }
+		switch incoming.Type {
+		case "move":
+			if incoming.EdgeID == "" {
+				continue
+			}
 
-            // Frontend sends "p1" or "p2"
-            slot := incoming.PlayerSlot
-            if slot != "p1" && slot != "p2" {
-                continue
-            }
+			// Frontend will send "p1" or "p2"
+			slot := incoming.PlayerSlot
+			if slot != "p1" && slot != "p2" {
+				continue
+			}
 
-            // 1) Record move
-            if err := saveMove(c.db, c.gameID, c.userID, incoming.EdgeID, slot); err != nil {
-                log.Println("saveMove error:", err)
-            }
+			// 1) Persist move in DB
+			if err := saveMove(c.db, c.gameID, c.userID, incoming.EdgeID, slot); err != nil {
+				log.Println("saveMove error:", err)
+			}
 
-            // 2) Broadcast move
-            move := GameMove{
-                Type:       "move",
-                GameID:     c.gameID,
-                EdgeID:     incoming.EdgeID,
-                PlayerSlot: slot,
-            }
-            c.hub.broadcast <- move
+			// 2) Broadcast canonical move to all clients
+			move := GameMove{
+				Type:       "move",
+				GameID:     c.gameID,
+				EdgeID:     incoming.EdgeID,
+				PlayerSlot: slot,
+			}
+			c.hub.broadcast <- move
 
-        case "chat":
-            txt := strings.TrimSpace(incoming.Text)
-            if txt == "" {
-                continue
-            }
+		case "chat":
+			txt := strings.TrimSpace(incoming.Text)
+			if txt == "" {
+				continue
+			}
 
-            // 1) Record chat
-            if err := saveGameChat(c.db, c.gameID, c.userID, txt); err != nil {
-                log.Println("saveGameChat error:", err)
-            }
+			// Use client-sent displayName if present; otherwise fall back.
+			displayName := incoming.DisplayName
+			if displayName == "" {
+				displayName = "Player"
+			}
 
-            // 2) Broadcast the chat
-            chat := GameMove{
-                Type:   "chat",
-                GameID: c.gameID,
-                UserID: c.userID,
-                Text:   txt,
-                SentAt: time.Now().UTC(),
-            }
-            c.hub.broadcast <- chat
+			// Save chat to DB
+			if err := saveGameChat(c.db, c.gameID, c.userID, displayName, txt); err != nil {
+				log.Println("saveGameChat error:", err)
+			}
 
-		 case "endGame":
-            end := GameMove{
-                Type:   "endGame",
-                GameID: c.gameID,
-                UserID: c.userID,
-                Text:   incoming.Text, 
-                SentAt: time.Now().UTC(),
-            }
-            c.hub.broadcast <- end
+			// Broadcast chat to both players
+			out := GameMove{
+				Type:        "chat",
+				GameID:      c.gameID,
+				Text:        txt,
+				UserID:      c.userID,
+				DisplayName: displayName,
+				SentAt:      time.Now().UTC(),
+			}
+			c.hub.broadcast <- out
 
-        default:
-        }
-    }
+		case "endGame":
+			txt := strings.TrimSpace(incoming.Text)
+			if txt == "" {
+				txt = "Game ended by a player"
+			}
+
+			out := GameMove{
+				Type:   "endGame",
+				GameID: c.gameID,
+				Text:   txt,
+			}
+			c.hub.broadcast <- out
+		}
+	}
 }
+
 
 
 
