@@ -186,7 +186,7 @@
   border: 1px solid rgba(148, 163, 184, 0.7);
   background: transparent;
   color: #e5e7eb;
-  cursor: not-allowed; /* will enable in step B */
+  cursor: not-allowed; 
 }
 
 
@@ -223,4 +223,29 @@
 .lobby-challenge-actions button:last-child {
   background: #4b5563;
   color: white;
+}
+
+.chat-message-row {
+  margin: 6px 0;
+  display: flex;
+  font-size: 0.95rem;
+  line-height: 1.4rem;
+  white-space: pre-wrap;
+}
+
+.chat-name {
+  font-weight: bold;
+  margin-right: 4px;
+}
+
+.chat-me .chat-name {
+  color: #10b981; 
+}
+
+.chat-opp .chat-name {
+  color: #1e88e5; 
+}
+
+.chat-text {
+  color: #e2e8f0; 
 }

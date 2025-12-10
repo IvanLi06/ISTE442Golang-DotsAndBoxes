@@ -118,7 +118,7 @@ export function GameProvider({ children }) {
    * applyMove is called ONLY from GamePage's WebSocket message handler.
    * Every client receives the same move stream, so all boards + turns stay in sync.
    */
-  function applyMove(edgeId, playerSlot) {
+  function applyMove(edgeId, playerSlotFromServer) {
   if (winner) return;
 
   setEdges((prevEdges) => {
@@ -128,7 +128,7 @@ export function GameProvider({ children }) {
     }
 
     // Use the slot from the message if present; otherwise fall back.
-    const playerId = playerSlot || currentPlayerId;
+    const playerId = playerSlotFromServer || currentPlayerId;
 
     const updatedEdges = {
       ...prevEdges,

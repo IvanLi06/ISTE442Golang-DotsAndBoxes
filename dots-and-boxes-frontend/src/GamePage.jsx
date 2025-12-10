@@ -1,5 +1,5 @@
 // src/GamePage.jsx
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useLocation, useParams, useNavigate } from "react-router-dom";
 import { useGame } from "./GameContext";
 import { useAuth } from "./auth/AuthContext";
@@ -15,6 +15,8 @@ export default function GamePage() {
   const location = useLocation();
   const { token } = useAuth();
   const navigate = useNavigate(); 
+  const [chatMessages, setChatMessages] = useState([]);
+  
 
   const {
     players,
@@ -86,7 +88,9 @@ export default function GamePage() {
     console.log("Game WS message:", msg);
 
     if (msg.type === "move" && msg.gameId === gameId) {
-      applyMove(msg.edgeId, msg.playerSlot); 
+    applyMove(msg.edgeId, msg.playerSlot);
+    } else if (msg.type === "chat" && msg.gameId === gameId) {
+      setChatMessages((prev) => [...prev, msg]);
     }
   } catch (err) {
     console.error("invalid game ws msg", err);
@@ -113,15 +117,36 @@ export default function GamePage() {
     return;
   }
 
+
+wsRef.current.send(
+  JSON.stringify({
+    type: "move",
+    gameId,
+    edgeId,
+    playerSlot: myPlayerId,
+  })
+);
+}
+
+
+function handleSendChat(text) {
+  const trimmed = text.trim();
+  if (!trimmed) return;
+
+  if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+    console.warn("Game WS not open");
+    return;
+  }
+
   wsRef.current.send(
     JSON.stringify({
-      type: "move",
+      type: "chat",
       gameId,
-      edgeId,
-      playerSlot: myPlayerId,
+      text: trimmed,
     })
   );
 }
+
 
 
   const myPlayerId = playerIndex === 0 ? "p1" : "p2";
@@ -159,8 +184,8 @@ export default function GamePage() {
       </section>
 
       <aside className="side-panel">
-        <ChatPanel />
-      </aside>
+        <ChatPanel messages={chatMessages} onSend={handleSendChat} />
+        </aside>
     </main>
   );
 }

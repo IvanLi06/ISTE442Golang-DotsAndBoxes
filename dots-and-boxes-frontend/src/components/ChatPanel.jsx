@@ -1,36 +1,50 @@
+// src/components/ChatPanel.jsx
 import React, { useState } from "react";
+import { useAuth } from "../auth/AuthContext";
 
-export default function ChatPanel({ title = "Game Chat" }) {
-  const [messages, setMessages] = useState([
-    { id: 1, author: "System", text: "Welcome to the chat!" },
-  ]);
+export default function ChatPanel({ messages, onSend }) {
+  const { user } = useAuth();
+  const currentUserId = user?.id ?? user?.userId ?? null;
+
   const [input, setInput] = useState("");
 
   function handleSubmit(e) {
     e.preventDefault();
-    if (!input.trim()) return;
-
-    // Later: send via WebSocket
-    setMessages((prev) => [
-      ...prev,
-      { id: Date.now(), author: "You", text: input.trim() },
-    ]);
+    const txt = input.trim();
+    if (!txt) return;
+    if (onSend) onSend(txt);
     setInput("");
   }
 
   return (
     <div className="chat-panel">
-      <h2>{title}</h2>
+      <h2 className="chat-title">Game Chat</h2>
+
       <div className="chat-messages">
-        {messages.map((m) => (
-          <div key={m.id} className="chat-message">
-            <span className="chat-author">{m.author}:</span>{" "}
-            <span className="chat-text">{m.text}</span>
-          </div>
-        ))}
+        {!messages || messages.length === 0 ? (
+          <div className="chat-empty">No messages yet. Say hi!</div>
+        ) : (
+          messages.map((msg, idx) => {
+            if (msg.type !== "chat") return null;
+            const isMe =
+              currentUserId != null &&
+              msg.userId != null &&
+              msg.userId === currentUserId;
+
+            return (
+              <div
+                key={idx}
+                className={`chat-message-row ${isMe ? "chat-me" : "chat-opp"}`}
+                >
+                <span className="chat-name">{isMe ? "You" : "Opponent"}:</span>{" "}
+                <span className="chat-text">{msg.text}</span>
+            </div>
+            );
+          })
+        )}
       </div>
 
-      <form onSubmit={handleSubmit} className="chat-input-row">
+      <form className="chat-input-row" onSubmit={handleSubmit}>
         <input
           type="text"
           placeholder="Type a message…"
