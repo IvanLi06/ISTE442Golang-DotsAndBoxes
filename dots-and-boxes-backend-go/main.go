@@ -388,6 +388,8 @@ func (c *LobbyClient) readPump() {
 			// Create a temporary gameId (later we store in DB)
 			gameID := uuid.NewString()
 
+			gameRegistry.Register(gameID, c.user.ID, payload.OpponentUserID)
+
 			start := LobbyStartGame{
 				Type:      "startGame",
 				GameID:    gameID,
@@ -585,6 +587,44 @@ func (c *GameClient) writePump() {
 }
 
 
+
+
+type GameRegistry struct {
+	mu    sync.RWMutex
+	games map[string][]int64 // exactly two players per game
+}
+
+func NewGameRegistry() *GameRegistry {
+	return &GameRegistry{
+		games: make(map[string][]int64),
+	}
+}
+
+func (gr *GameRegistry) Register(gameID string, p1, p2 int64) {
+	gr.mu.Lock()
+	defer gr.mu.Unlock()
+	gr.games[gameID] = []int64{p1, p2}
+}
+
+func (gr *GameRegistry) IsPlayerInGame(gameID string, userID int64) bool {
+	gr.mu.RLock()
+	defer gr.mu.RUnlock()
+
+	players, ok := gr.games[gameID]
+	if !ok {
+		return false
+	}
+	for _, id := range players {
+		if id == userID {
+			return true
+		}
+	}
+	return false
+}
+
+
+
+var gameRegistry = NewGameRegistry()
 
 
 
@@ -798,6 +838,11 @@ func (s *Server) handleGameWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Printf("handleGameWS: user %d joining game %s", userID, gameID)
+
+	if !gameRegistry.IsPlayerInGame(gameID, userID) {
+        writeError(w, http.StatusForbidden, "you are not a player in this game")
+        return
+    }
 
 	conn, err := wsUpgrader.Upgrade(w, r, nil)
 	if err != nil {

@@ -1,6 +1,6 @@
 // src/GamePage.jsx
 import React, { useEffect, useRef } from "react";
-import { useLocation, useParams } from "react-router-dom";
+import { useLocation, useParams, useNavigate } from "react-router-dom";
 import { useGame } from "./GameContext";
 import { useAuth } from "./auth/AuthContext";
 
@@ -14,6 +14,7 @@ export default function GamePage() {
   const { gameId } = useParams();
   const location = useLocation();
   const { token } = useAuth();
+  const navigate = useNavigate(); 
 
   const {
     players,
@@ -27,57 +28,44 @@ export default function GamePage() {
 
   // 🔹 1. Determine which player THIS browser is, and store in context
   useEffect(() => {
-    let idx = -1;
+  let idx = -1;
 
-    // 1) Prefer value passed via router state (from LobbyChat.handleStartGame)
-    if (
-      location.state &&
-      typeof location.state.playerIndex === "number" &&
-      (location.state.playerIndex === 0 || location.state.playerIndex === 1)
-    ) {
-      idx = location.state.playerIndex;
-      console.log("GamePage: using playerIndex from location.state:", idx);
-    } else {
-      // 2) Try localStorage (set by LobbyChat)
-      const rawRole = window.localStorage.getItem(`game-role:${gameId}`);
-      if (rawRole) {
-        try {
-          const parsed = JSON.parse(rawRole);
-          if (
-            parsed &&
-            (parsed.playerIndex === 0 || parsed.playerIndex === 1)
-          ) {
-            idx = parsed.playerIndex;
-            console.log("GamePage: using playerIndex from localStorage:", idx);
-          }
-        } catch (e) {
-          console.warn("GamePage: failed to parse stored role", e);
-        }
-      }
-
-      // 3) Fallback: sessionStorage (older behavior)
-      if (idx === -1) {
-        const stored = window.sessionStorage.getItem(
-          `game:${gameId}:playerIndex`
-        );
-        if (stored === "0" || stored === "1") {
-          idx = Number(stored);
-          console.log("GamePage: using playerIndex from sessionStorage:", idx);
-        }
-      }
+  // 1) Prefer router state passed from lobby "startGame"
+  if (
+    location.state &&
+    typeof location.state.playerIndex === "number" &&
+    (location.state.playerIndex === 0 || location.state.playerIndex === 1)
+  ) {
+    idx = location.state.playerIndex;
+  } else {
+    // 2) Fallback: restore from sessionStorage on reload
+    const stored = window.sessionStorage.getItem(
+      `game:${gameId}:playerIndex`
+    );
+    if (stored === "0" || stored === "1") {
+      idx = Number(stored);
     }
+  }
 
-    if (idx === -1) {
-      console.warn(
-        "GamePage: No playerIndex found for this client, defaulting to 0"
-      );
-      idx = 0;
-    }
+  // 3) If we *still* don’t know who this client is, they’re not a player.
+  if (idx === -1) {
+    console.warn(
+      "No playerIndex for this client in game",
+      gameId,
+      "- redirecting to lobby"
+    );
+    navigate("/lobby", { replace: true });
+    return;
+  }
 
-    setPlayerIndex(idx);
-    window.sessionStorage.setItem(`game:${gameId}:playerIndex`, String(idx));
-    console.log("GamePage: final playerIndex for this tab:", idx);
-  }, [location.state, gameId, setPlayerIndex]);
+  setPlayerIndex(idx);
+  window.sessionStorage.setItem(
+    `game:${gameId}:playerIndex`,
+    String(idx)
+  );
+  console.log("Loaded player index for this tab:", idx);
+}, [location.state, gameId, setPlayerIndex, navigate]);
+
 
   // 🔹 2. Game WebSocket for receiving moves
   useEffect(() => {

@@ -8,8 +8,8 @@ import React, {
 
 const GameContext = createContext(null);
 
-const NUM_BOXES_X = 8;
-const NUM_BOXES_Y = 8;
+const NUM_BOXES_X = 4;
+const NUM_BOXES_Y = 4;
 
 function generateEdges() {
   const edges = {};
