@@ -1131,7 +1131,10 @@ func main() {
 	mux.HandleFunc("/ws/lobby", srv.handleLobbyWS)
 	mux.HandleFunc("/ws/game", srv.handleGameWS)
 
-	port := "8090"
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8090" // local dev default
+	}
 	log.Println("Listening on port", port)
 	log.Fatal(http.ListenAndServe(":"+port, withCORS(mux)))
 }
