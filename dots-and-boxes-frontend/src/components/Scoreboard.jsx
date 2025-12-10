@@ -66,7 +66,7 @@ export default function ScoreBoard() {
               color: "#22c55e",
             }}
           >
-            Your turn
+            Current Turn
           </div>
         )}
       </div>
